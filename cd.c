@@ -1,101 +1,165 @@
-#include "shell.h"
-/**
- *_cd - change directory builtin
- * @av: argument to work with
- * Return: int
- */
-int _cd(char *av[])
-{
-	char *oldpwd = NULL, *newpath, *pathbit, *newptr;
-	char *homestr = "HOME", *oldpwdstr = "OLDPWD";
-	int ret, printpath = 0;
+#include "main.h"
 
-	oldpwd = getcwd(oldpwd, 0);
-	if (oldpwd == NULL)
-		return (1);
-	if (av[1] == NULL || av[1][0] == 0)
+/**
+ * cd_dot - changes to the parent directory
+ *
+ * @datash: data relevant (environ)
+ *
+ * Return: no return
+ */
+void cd_dot(data_shell *datash)
+{
+	char pwd[PATH_MAX];
+	char *dir, *cp_pwd, *cp_strtok_pwd;
+
+	getcwd(pwd, sizeof(pwd));
+	cp_pwd = _strdup(pwd);
+	set_env("OLDPWD", cp_pwd, datash);
+	dir = datash->args[1];
+	if (_strcmp(".", dir) == 0)
 	{
-		newpath = _getenv(homestr);
-		if (newpath == homestr)
-			newpath = _strdup("");
-		av[1] = newpath;
-		av[2] = NULL;
+		set_env("PWD", cp_pwd, datash);
+		free(cp_pwd);
+		return;
 	}
-	else if (av[1][0] == '-' && av[1][1] == 0)
+	if (_strcmp("/", cp_pwd) == 0)
 	{
-		/*check getenv malloc error here and above*/
-		newpath = _getenv(oldpwdstr);
-		if (newpath == oldpwdstr)
-			newpath = _strdup("");
-		printpath = 1;
-		free(av[1]);
-		av[1] = newpath;
+		free(cp_pwd);
+		return;
 	}
-	/*{*/
-#ifdef DEBUGCD
-	printf("Making new path %s:%c\n", av[1], av[1][0]);
-#endif
-	newpath = malloc(sizeof(char) * (_strlen(oldpwd) + _strlen(av[1]) + 2));
-	if (newpath == NULL)
-		return (-1);
-	newptr = newpath;
-	pathbit = oldpwd;
-	if (av[1][0] != '/' && pathbit[1] != 0)
-		while (*pathbit)
-			*newptr++ = *pathbit++;
-	*newptr++ = '/';
-	pathbit = strtok(av[1], "/");
-#ifdef DEBUGCD
-	printf("starting newpath:%s:Pathbit got:%s\n", newpath, pathbit);
-	printf("newpath/ptr diff:%p\n", newptr - newpath);
-#endif
-	while (pathbit != NULL)
+	cp_strtok_pwd = cp_pwd;
+	rev_string(cp_strtok_pwd);
+	cp_strtok_pwd = _strtok(cp_strtok_pwd, "/");
+	if (cp_strtok_pwd != NULL)
 	{
-		if (pathbit[0] == '.' && pathbit[1] == '.'
-		    && pathbit[2] == 0)
-		{
-#ifdef DEBUGCD
-			printf("going back a directory%s:%s\n", newpath, newpath);
-#endif
-			newptr--;
-			if (newptr != newpath)
-				newptr--;
-			while (*newptr != '/')
-				newptr--;
-			*newptr++ = '/';
-		}
-		else if (!(pathbit[0] == '.' && pathbit[1] == 0))
-		{
-			while (*pathbit)
-				*newptr++ = *pathbit++;
-			*newptr++ = '/';
-		}
-		pathbit = strtok(NULL, "/");
-#ifdef DEBUGCD
-		printf("Got pathbit:%s\n", pathbit);
-#endif
+		cp_strtok_pwd = _strtok(NULL, "\0");
+
+		if (cp_strtok_pwd != NULL)
+			rev_string(cp_strtok_pwd);
 	}
-	if (newptr != newpath && newptr != newpath + 1)
-		newptr--;
-	*newptr = 0;
-#ifdef DEBUGCD
-	printf("New path:%s\n", newpath);
-#endif
-	/*}*/
-	ret = chdir(newpath);
-	if (ret == 0)
+	if (cp_strtok_pwd != NULL)
 	{
-		_setenv("OLDPWD", oldpwd);
-		free(oldpwd);
-		_setenv("PWD", newpath);
-		if (printpath)
-			fprintstrs(1, newpath, "\n", NULL);
-		free(newpath);
-		return (0);
+		chdir(cp_strtok_pwd);
+		set_env("PWD", cp_strtok_pwd, datash);
 	}
-	printerr(": cd: can't cd to ");
-	fprintstrs(STDERR_FILENO, av[1], "\n", NULL);
-	free(oldpwd);
-	free(newpath);
-	return (ret);
+	else
+	{
+		chdir("/");
+		set_env("PWD", "/", datash);
+	}
+	datash->status = 0;
+	free(cp_pwd);
+}
+
+/**
+ * cd_to - changes to a directory given
+ * by the user
+ *
+ * @datash: data relevant (directories)
+ * Return: no return
+ */
+void cd_to(data_shell *datash)
+{
+	char pwd[PATH_MAX];
+	char *dir, *cp_pwd, *cp_dir;
+
+	getcwd(pwd, sizeof(pwd));
+
+	dir = datash->args[1];
+	if (chdir(dir) == -1)
+	{
+		get_error(datash, 2);
+		return;
+	}
+
+	cp_pwd = _strdup(pwd);
+	set_env("OLDPWD", cp_pwd, datash);
+
+	cp_dir = _strdup(dir);
+	set_env("PWD", cp_dir, datash);
+
+	free(cp_pwd);
+	free(cp_dir);
+
+	datash->status = 0;
+
+	chdir(dir);
+}
+
+/**
+ * cd_previous - changes to the previous directory
+ *
+ * @datash: data relevant (environ)
+ * Return: no return
+ */
+void cd_previous(data_shell *datash)
+{
+	char pwd[PATH_MAX];
+	char *p_pwd, *p_oldpwd, *cp_pwd, *cp_oldpwd;
+
+	getcwd(pwd, sizeof(pwd));
+	cp_pwd = _strdup(pwd);
+
+	p_oldpwd = _getenv("OLDPWD", datash->_environ);
+
+	if (p_oldpwd == NULL)
+		cp_oldpwd = cp_pwd;
+	else
+		cp_oldpwd = _strdup(p_oldpwd);
+
+	set_env("OLDPWD", cp_pwd, datash);
+
+	if (chdir(cp_oldpwd) == -1)
+		set_env("PWD", cp_pwd, datash);
+	else
+		set_env("PWD", cp_oldpwd, datash);
+
+	p_pwd = _getenv("PWD", datash->_environ);
+
+	write(STDOUT_FILENO, p_pwd, _strlen(p_pwd));
+	write(STDOUT_FILENO, "\n", 1);
+
+	free(cp_pwd);
+	if (p_oldpwd)
+		free(cp_oldpwd);
+
+	datash->status = 0;
+
+	chdir(p_pwd);
+}
+
+/**
+ * cd_to_home - changes to home directory
+ *
+ * @datash: data relevant (environ)
+ * Return: no return
+ */
+void cd_to_home(data_shell *datash)
+{
+	char *p_pwd, *home;
+	char pwd[PATH_MAX];
+
+	getcwd(pwd, sizeof(pwd));
+	p_pwd = _strdup(pwd);
+
+	home = _getenv("HOME", datash->_environ);
+
+	if (home == NULL)
+	{
+		set_env("OLDPWD", p_pwd, datash);
+		free(p_pwd);
+		return;
+	}
+
+	if (chdir(home) == -1)
+	{
+		get_error(datash, 2);
+		free(p_pwd);
+		return;
+	}
+
+	set_env("OLDPWD", p_pwd, datash);
+	set_env("PWD", home, datash);
+	free(p_pwd);
+	datash->status = 0;
 }
